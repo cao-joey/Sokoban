@@ -24,7 +24,7 @@ We will now paste the code you have copied into the editor terminal in the centr
 
 Before we can run the game, locate the small “settings” section under the “registers” section on the left. You may drag to enlarge the section, much like you would when resizing an application on your computer. Your first order of business is to find the checkbox labeled "function nesting too deep". Uncheck it.
 
-Now return to the editor's panel. At the very top (scroll up back up) we see ".data" and "gridsize: .byte 20,20". Choose your board size by replacing the numbers for “gridsize” under .data in the editor section. For example, if I wanted an 8 by 8 grid, I would enter change this to '10,10’.
+Now return to the editor's panel. At the very top (scroll up back up) we see ".data" and "gridsize: .byte height,width". Choose your board size by replacing the numbers for “gridsize” under .data in the editor section. For example, if I wanted an 10 by 10 grid, I would enter change this to '10,10’.
 
 <strong>IMPORTANT: </strong>Due to the way the code is being run, please make sure that one dimension is at least 7. Additionally, the board can not be less than 3 pixels wide or long. 
 
