@@ -1,0 +1,1067 @@
+.data
+gridsize:   .byte height,width
+character:  .byte 0,0
+box:        .byte 0,0
+target:     .byte 0,0
+players:	.byte 1
+numMoves:	.byte 0
+
+constants:	.byte 1,17,23
+possMoves:	.byte 1,2,3,7,9,10
+modulus:	.word 10061
+
+prompt:		.string "Enter input: "
+pPrompt:	.string "How many players? "
+again:		.string "Play again (Yes: 0/No: 1)?  "
+playerStr:	.string "Player " 
+ldrBoard:	.string "Leaderboard:\n"
+newline:	.string "\n"
+tab: 		.string "\t"
+space:		.string " "
+
+.text
+.globl _start
+
+_start:
+	# Citation: 
+	# Thomson, W. E., & Rotenberg, A. (1958). Linear Congruential Generator. 
+	#	https://en.wikipedia.org/wiki/Linear_congruential_generator.
+	# addi sp, sp, 24
+	
+	playGame:
+		la a0, pPrompt
+		li a7, 4
+		ecall
+		
+		li a7, 5
+		ecall
+		
+		bge x0, a0, forceExit 
+		
+		la t0, players
+		sb a0, 0(t0) # save number of players
+	
+	setUp:
+		# Add iterator 
+		mv s8, x0
+		sw s8, 0(sp) # save iterator on stack
+		
+		# Set up two heap storages for score arrays
+		lb t1, 0(t0) # Num of players
+		mv a0, t1
+		li a7, 9
+		ecall
+		
+		mv s7, a0
+		sw s7, 0(sp)
+		
+		mv t1, a0
+		li a7, 9
+		ecall
+		
+		mv s6, a0
+		sw s6, 0(sp)
+		
+		# Set up heap storage for move list
+		li t0, 6 # box x2, target x2, character x2
+		mv t1, a0 
+		mul t0, t0, a0 # 6 * num players
+		li a7, 9
+		ecall
+		
+		mv s5, a0
+		sw s5, 0(sp)
+		
+	start:
+		# Generate coordinates
+		addi sp, sp, -8 
+	
+	# Nothing but walls can be in: row 0 or row end, col 0 or col end 
+	characterCheckLoop:
+		la a0, character
+		la a1, gridsize
+		jal genCoordinates # gen coordinates 
+		
+		# Check validity:
+		la a0, character
+		la a1, gridsize
+		lb t1, 0(a1) # x end
+		lb t2, 1(a1) # y end
+
+		lb t3, 0(a0) # char x
+		lb t4, 1(a0) # char y
+		
+		# Because of 0 indexing, we have spots actually from 0 - (end-1)
+		addi t1, t1, -1 
+		addi t2, t2, -1 
+
+		# Can't be in any of row 0, end or col 0, end 
+		beq t3, x0, characterCheckLoop # If x == 0
+		beq t3, t1, characterCheckLoop # If x == end
+		beq t4, x0, characterCheckLoop # If y == 0
+		beq t4, t2, characterCheckLoop # If y == end 
+		
+	targetCheckLoop:
+		la a0, target
+		jal genCoordinates # generate
+		
+		# Check validity:
+		la a0, target
+		la a1, gridsize
+		
+		lb t1, 0(a1) # x end
+		lb t2, 1(a1) # y end
+
+		lb t3, 0(a0) # tar x
+		lb t4, 1(a0) # tar y
+		
+		# Because of 0 indexing, we have spots actually from 0 - (end-1)
+		addi t1, t1, -1 
+		addi t2, t2, -1 
+
+		# Can't be in any of row 0, end or col 0, end 
+		beq t3, x0, targetCheckLoop # If x == 0
+		beq t3, t1, targetCheckLoop # If x == end
+		beq t4, x0, targetCheckLoop # If y == 0
+		beq t4, t2, targetCheckLoop # If y == end
+
+		la a0, character
+		la a1, target
+		charTarOverlap:
+			lb t0, 0(a0) # char x
+			lb t1, 1(a0) # char y
+
+			lb t2, 0(a1) # tar x
+			lb t3, 1(a1) # tar y
+
+			beq t0, t2, checkCharTarCols # if char x == tar x
+			j boxCheckLoop
+	
+			checkCharTarCols:
+				beq t1, t3, targetCheckLoop # char y == tar y (regenerate)
+	
+	# Board can not be in the corner 
+	# (1, 1) or (1, end - 1) or (end - 1, 1) or (end - 1, end - 1)
+	# Also can't be against a wall unless the target is as well
+	boxCheckLoop:
+		# Generate or regenerate box coordinates
+		la a0, box
+		jal genCoordinates
+		
+		# Check validity:
+		la a0, box
+		la a1, gridsize
+		lb t1, 0(a1) # x end
+		lb t2, 1(a1) # y end
+
+		lb t3, 0(a0) # box x
+		lb t4, 1(a0) # box y
+		
+		# Because of 0 indexing, we have spots actually from 0 - (end-1)
+		addi t1, t1, -1 
+		addi t2, t2, -1 
+
+		# Can't be in any of row 0, end or col 0, end 
+		beq t3, x0, boxCheckLoop # If x == 0
+		beq t3, t1, boxCheckLoop # If x == end
+		beq t4, x0, boxCheckLoop # If y == 0
+		beq t4, t2, boxCheckLoop # If y == end
+		
+		la a0, character
+		la a1, target
+		la a2, box
+		
+		charTarBoxOverlap:
+			lb t0, 0(a2) # box x
+			lb t1, 1(a2) # box y
+
+			lb t2, 0(a0) # char x
+			lb t3, 1(a0) # char y
+
+			beq t0, t2, checkCharBoxCols # x's match
+			j checkTarBoxRows
+
+			checkCharBoxCols:
+				beq t1, t3, boxCheckLoop # y's match
+
+			checkTarBoxRows:
+				lb t2, 0(a1) # tar x
+				lb t3, 1(a1) # tar y
+
+				beq t0, t2, checkTarBoxCols # x's match
+				j boxCheckLoopContinue
+
+			checkTarBoxCols:
+				beq t1, t3, boxCheckLoop # y's match 
+		
+		boxCheckLoopContinue:
+			# Load constants
+			la t0, gridsize 
+			lb t1, 0(t0) # x end
+			lb t2, 1(t0) # y end
+
+			la t0, box 
+			lb t3, 0(t0) # box x
+			lb t4, 1(t0) # box y
+
+			# Because of 0 indexing, we have spots actually from 0 - (end-1)
+			# Take the extra because the box can't be end - 1 either lol
+			addi t1, t1, -2 
+			addi t2, t2, -2
+
+			li t5, 1 # For starting pos
+
+			beq t3, t5, zeroXPos # If x == 1
+			beq t3, t1, endXPos # If x == end 
+			beq t4, t5, checkTargetYPos # If y == 1
+			beq t4, t2, checkTargetYPos # If y == end
+			j checkGridSize # Else, continue
+	
+			zeroXPos:
+				beq t4, t5, boxCheckLoop # (0, 0)
+				beq t4, t2, boxCheckLoop # (0, end)
+
+				la t0, target
+				lb t6, 0(t0) # target x
+				bne t6, t3, boxCheckLoop # target x != box x 
+
+			endXPos:
+				beq t4, t5, boxCheckLoop # (end, 0)
+				beq t4, t2, boxCheckLoop # (end, end)
+
+				la t0, target
+				lb t6, 0(t0) # target x
+				bne t6, t3, boxCheckLoop # target x != box x 
+				j checkGridSize 
+
+			checkTargetYPos: 
+				la t0, target
+				lb t6, 1(t0) # target y
+				bne t6, t4, boxCheckLoop # target y != box y
+				j checkGridSize
+				
+			checkGridSize:
+				la t0, gridsize 
+				lb t1, 0(t0) # height
+				lb t2, 1(t0) # length
+
+				li t4, 3
+				beq t1, t4, checkTarGTBoxH
+				beq t2, t4, checkTarGTBoxL
+			
+			checkTarGTBoxH:
+				la t0, target
+				lb t1, 1(t0) 
+				la t0, box
+				lb t2, 1(t0) 
+				la t0, character
+				lb t3, 1(t0)
+				
+				blt t1, t2, boxCheckLoop # if target y < box y, reload
+				blt t2, t3, boxCheckLoop # if player y < box y, reload
+			
+			checkTarGTBoxL:
+				la t0, target
+				lb t1, 0(t0) 
+				la t0, box
+				lb t2, 0(t0) 
+				la t0, character
+				lb t3, 0(t0)
+				
+				blt t1, t2, boxCheckLoop # if target x < box x, reload
+				blt t3, t2, boxCheckLoop # if player x < box x, reload
+			
+	rmSpace:
+		# Save original coordinates 
+		la t0, character
+		lb t1, 0(t0)
+		lb t2, 1(t0)
+		
+		sb t1, 0(s5)
+		sb t2, 1(s5)
+		
+		la t0, box
+		lb t1, 0(t0)
+		lb t2, 1(t0)
+		
+		sb t1, 2(s5)
+		sb t2, 3(s5)
+		
+		la t0, target
+		lb t1, 0(t0)
+		lb t2, 1(t0)
+		
+		sb t1, 4(s5)
+		sb t2, 5(s5)
+		
+		addi sp, sp, 8 # Remove space off stack
+		
+		# Load arguments before jumping
+		la a1, character
+		la a2, box
+		la a3, target
+		la a4, gridsize
+		
+		# Print the board! 
+		j printBoard
+	
+	gameLoop:
+		# Check iterator
+		la t1, players
+		lb t2, 0(t1)
+		
+		beq s8, t2, exit # no more players to loop
+	
+		# Print the board  
+		li a7, 4
+		ecall
+		
+		mv a1, a0
+		
+		# Print whose playing 
+		la a0, playerStr
+		li a7, 4
+		ecall
+		
+		addi a0, s8, 1
+		li a7, 1
+		ecall
+		
+		la a0, newline
+		li a7, 4
+		ecall
+		
+		la a0, newline
+		li a7, 4
+		ecall
+		
+		# Check win condition:
+		la t0, box
+		la t1, target
+		lb t2, 0(t0) # box x
+		lb t3, 0(t1) # target x
+		beq t2, t3, checkWinConditionY
+		j noWinCondition
+		
+		checkWinConditionY:
+			lb t2, 1(t0) # box y
+			lb t3, 1(t1) # target y
+			beq t2, t3, gameWon
+		
+		noWinCondition:
+		# Print prompt: 
+		li a7, 4
+		la a0, prompt
+		ecall
+		
+		# Read from user:
+		li a7, 5
+		ecall
+		
+		mv t6, a0 # Save input 
+
+		# Heap offset setup
+		la t0, gridsize # (row, col)
+		lb t1, 0(t0) # num rows
+		lb t2, 1(t0) # num cols
+
+		addi t2, t2, 1 # accounting for new line value
+
+		la t0, character
+		lb t3, 0(t0) # curr x pos
+		lb t4, 1(t0) # curr y pos
+		
+		# 0 - up, 1 - down, 2 - left, 3 - right, 7 - undo, 9 - restart
+		# 10 - force exit
+		la t0, possMoves
+		beq t6, x0, goUp
+		
+		lb t1, 0(t0)
+		beq t6, t1, goDown
+		
+		lb t1, 1(t0)
+		beq t6, t1, goLeft
+		
+		lb t1, 2(t0)
+		beq t6, t1, goRight 
+		
+		lb t1, 3(t0)
+		beq t6, t1, undoMove
+		
+		lb t1, 4(t0)
+		beq t6, t1, restartGame
+		
+		lb t1, 5(t0)
+		beq t6, t1, forceExit
+		
+		j loopAgain
+		
+		goUp:
+			addi t3, t3, -1 # height change
+			# No change to col
+			
+			mul t5, t2, t3 # num cols * curr x pos
+			add t5, t5, t4 # num rows * curr x pos + curr y pos 
+			add t6, t5, a1 # Position in heap
+			lb t4, 0(t6) # character at position 
+			
+			# Wall
+			li t3, 35 # wall character
+			beq t3, t4, loopAgain
+		
+			# Box 
+			li t3, 66 # Box
+			beq t3, t4, moveCharBoxUp
+			
+			# Empty or Target
+			changePosUp:
+				la t0, character 
+				lb t1, 0(t0) # x position
+				addi t1, t1, -1 # go up
+				sb t1, 0(t0) # change position
+				
+				j loopAgain
+			
+			moveCharBoxUp:
+				la t0, gridsize # (row, col)
+				lb t1, 0(t0) # num rows
+				lb t2, 1(t0) # num cols
+
+				addi t2, t2, 1 # accounting for new line value
+				
+				li t3, 1 
+				mul t3, t3, t2 
+				sub t5, t5, t3 # (go up two rows)
+				add t6, t5, a1 # address 
+				
+				lb t4, 0(t6) # character at position 
+			
+				# Wall
+				li t3, 35 # wall character 
+				beq t3, t4, loopAgain # (can't push up)
+				
+				# Empty
+				li t3, 42 # empty
+				beq t3, t4, changeBoxPosUp
+
+				beq t3, t4, loopAgain
+				
+				changeBoxPosUp:
+					la t0, box 
+					lb t1, 0(t0) # x position
+					addi t1, t1, -1 # go up
+					sb t1, 0(t0) # change position
+				
+					j changePosUp
+				
+		goDown:
+			addi t3, t3, 1
+			# No change to col
+			
+			mul t5, t2, t3 # num cols * curr x pos
+			add t5, t5, t4 # num rows * curr x pos + curr y pos 
+			add t6, t5, a1 # Position in heap
+			lb t4, 0(t6) # character at position 
+			
+			# Wall
+			li t3, 35 # wall character
+			beq t3, t4, loopAgain
+			
+			# Box 
+			li t3, 66 # Box
+			beq t3, t4, moveCharBoxDown
+			
+			# Empty or Target
+			changePosDown:
+				la t0, character 
+				lb t1, 0(t0) # x position
+				addi t1, t1, 1 # go down
+				sb t1, 0(t0) # change position
+				
+				j loopAgain
+				
+			moveCharBoxDown:
+				la t0, gridsize # (row, col)
+				lb t1, 0(t0) # num rows
+				lb t2, 1(t0) # num cols
+
+				addi t2, t2, 1 # accounting for new line value
+
+				li t3, 1 
+				mul t3, t3, t2 
+				add t5, t5, t3 # (go down two rows)
+				add t6, t5, a1 # address 
+
+				# Wall
+				li t3, 35 # wall character 
+				beq t3, t4, loopAgain # (can't push up)
+
+				# Empty
+				li t3, 42 # empty
+				beq t3, t4, changeBoxPosUp
+
+				beq t3, t4, loopAgain
+				
+				changeBoxPosDown:
+					la t0, box 
+					lb t1, 0(t0) # x position
+					addi t1, t1, 1 # go down
+					sb t1, 0(t0) # change position
+				
+					j changePosDown
+				
+		goLeft:
+			# No change to row
+			addi t4, t4, -1
+			
+			mul t5, t2, t3 # num cols * curr x pos
+			add t5, t5, t4 # num rows * curr x pos + curr y pos 
+			add t6, t5, a1 # Position in heap
+			lb t4, 0(t6) # character at position 
+			
+			# Wall
+			li t3, 35 # wall character
+			beq t3, t4, loopAgain
+			
+			# Box 
+			li t3, 66 # Box
+			beq t3, t4, moveCharBoxLeft
+			
+			# Empty or Target
+			changePosLeft:
+				la t0, character 
+				lb t1, 1(t0) # y position
+				addi t1, t1, -1 # go left
+				sb t1, 1(t0) # change position
+				
+				j loopAgain
+				
+			moveCharBoxLeft:
+				la t0, gridsize # (row, col)
+				lb t1, 0(t0) # num rows
+				lb t2, 1(t0) # num cols
+
+				addi t2, t2, 1 # accounting for new line value
+
+				li t3, 2 
+				sub t5, t5, t3 # (go left two rows)
+				add t6, t5, a1 # address 
+
+				# Wall
+				li t3, 35 # wall character 
+				beq t3, t4, loopAgain # (can't push up)
+
+				# Empty
+				li t3, 42 # empty
+				beq t3, t4, changeBoxPosLeft
+
+				beq t3, t4, loopAgain
+				
+				changeBoxPosLeft:
+					la t0, box 
+					lb t1, 1(t0) # y position
+					addi t1, t1, -1 # go left
+					sb t1, 1(t0) # change position
+				
+					j changePosLeft
+		
+		goRight:
+			# No change to row 
+			addi t4, t4, 1 # accounting for 0 index
+			
+			mul t5, t2, t3 # num cols * curr x pos
+			add t5, t5, t4 # num rows * curr x pos + curr y pos 
+			add t6, t5, a1 # Position in heap
+			lb t4, 0(t6) # character at position 
+			
+			# Wall
+			li t3, 35 # wall character
+			beq t3, t4, loopAgain
+			
+			# Box 
+			li t3, 66 # Box
+			beq t3, t4, moveCharBoxRight
+			
+			# Empty or Target
+			changePosRight:
+				la t0, character 
+				lb t1, 1(t0) # y position
+				addi t1, t1, 1 # go right
+				sb t1, 1(t0) # change position
+				
+				j loopAgain
+				
+			moveCharBoxRight:
+				la t0, gridsize # (row, col)
+				lb t1, 0(t0) # num rows
+				lb t2, 1(t0) # num cols
+
+				addi t2, t2, 1 # accounting for new line value
+
+				li t3, 2 
+				add t5, t5, t3 # (go left two rows)
+				add t6, t5, a1 # address 
+
+				# Wall
+				li t3, 35 # wall character 
+				beq t3, t4, loopAgain # (can't push up)
+
+				# Empty
+				li t3, 42 # empty
+				beq t3, t4, changeBoxPosRight
+
+				beq t3, t4, loopAgain
+				
+				changeBoxPosRight:
+					la t0, box 
+					lb t1, 1(t0) # y position
+					addi t1, t1, 1 # go left
+					sb t1, 1(t0) # change position
+				
+					j changePosRight
+		undoMove: 
+			la t0, numMoves 
+			lb t1, 0(t0) 
+			
+			addi t1, t1, -1
+			sb t1, 0(t0) # Go back one move
+			
+			blt t1, x0, reprintBoard # numMoves < 0 (nothing to undo)
+			
+			li t6, 6
+			mul t3, t1, t6 
+			add t4, t3, s5 # Address of move on heap
+			
+			# Reload saved values
+			la t0, character
+			lb t1, 0(t4) 
+			lb t2, 1(t4)
+			sb t1, 0(t0)
+			sb t2, 1(t0)
+			
+			la t0, box
+			lb t1, 2(t4)
+			lb t2, 3(t4)
+			sb t1, 0(t0)
+			sb t2, 1(t0)
+			
+			la t0, target
+			lb t1, 4(t4)
+			lb t2, 5(t4)
+			sb t1, 0(t0)
+			sb t2, 1(t0)
+			
+			
+			j reprintBoard
+		
+		restartGame:
+			la t0, numMoves
+			sb x0, 0(t0) # Reset number of moves 
+		
+			# Reload saved values
+			la t0, character
+			lb t1, 0(s5) 
+			lb t2, 1(s5)
+			sb t1, 0(t0)
+			sb t2, 1(t0)
+			
+			la t0, box
+			lb t1, 2(s5) 
+			lb t2, 3(s5)
+			sb t1, 0(t0)
+			sb t2, 1(t0)
+			
+			la t0, target
+			lb t1, 4(s5) 
+			lb t2, 5(s5)
+			sb t1, 0(t0)
+			sb t2, 1(t0)
+			
+			j reprintBoard
+			
+		gameWon:
+			# Current offset in heap
+			add t0, s7, s8 
+			add t1, s6, s8
+			
+			# Store number of moves
+			la t2, numMoves
+			lb t3, 0(t2)
+			sb t3, 0(t0)
+			sb t3, 0(t1)
+			
+			add s8, s8, 1 # increment player iterator
+			sb x0, 0(t2) # Reset number of moves
+			
+			j restartGame
+		
+		loopAgain:
+			la t0, numMoves 
+			lb t6, 0(t0) 
+			addi t6, t6, 1 
+			sb t6, 0(t0) # Increment number of moves
+			
+			# Save board state
+			li t5, 6
+			mul t6, t6, t5 
+			add t6, t6, s5 # address of current move
+			
+			la t0, character
+			lb t1, 0(t0)
+			lb t2, 1(t0)
+
+			sb t1, 0(t6)
+			sb t2, 1(t6)
+
+			la t0, box
+			lb t1, 0(t0)
+			lb t2, 1(t0)
+
+			sb t1, 2(t6)
+			sb t2, 3(t6)
+
+			la t0, target
+			lb t1, 0(t0)
+			lb t2, 1(t0)
+
+			sb t1, 4(t6)
+			sb t2, 5(t6)
+
+			reprintBoard:
+				la t0, numMoves
+				lb t1, 0(t0) 
+				blt t1, x0, resetNumMoves # numMoves < 0 
+				j loadArguments
+				
+				resetNumMoves:
+				li t4, 0
+				sb t4, 0(t0) # reset to 0
+					
+				loadArguments:
+				# Load arguments before jumping
+				la a1, character
+				la a2, box
+				la a3, target
+				la a4, gridsize
+				jal printBoard
+	
+	exit:
+		la a0, ldrBoard
+		li a7, 4
+		ecall
+		
+		# Sort player scores
+		mv a0, s6 # address of heap
+		mv a1, s8 # num players (size of list)
+		jal bubbleSort
+		
+		la a0, newline
+		li a7, 4
+		ecall
+		
+		mv a0, s6
+		li t0, 0 # Iterator (i)
+		leaderboardLoop:
+			mv t6, s7 # unsorted list
+			beq t0, s8, playAgain # i == num players (done)
+			lb t1, 0(a0) # Item in sorted list
+			li t2, 0 # Inner loop iterator (j)
+			
+			findWhichPlayer:
+				lb t3, 0(t6) # Item in unsorted list
+				beq t1, t3, playerFound # If the items are the same
+				
+				addi t6, t6, 1 # Next item in unsorted list
+				addi t2, t2, 1 # j + 1
+				
+				j findWhichPlayer
+			
+			playerFound:
+				addi t5, t2, 1 # accounting for 0-indexing
+				
+				# Rank
+				mv a0, t0
+				li a7, 1
+				ecall
+				
+				la a0, space
+				li a7, 4
+				ecall
+				
+				la a0, playerStr
+				li a7, 4
+				ecall
+				
+				# Player number
+				mv a0, t5
+				li a7, 1
+				ecall
+				
+				la a0, tab
+				li a7, 4
+				ecall
+				
+				# Score
+				mv a0, t1
+				li a7, 1
+				ecall
+				
+				la a0, newline
+				li a7, 4
+				ecall
+				
+				# Change item to impossible value in case of tie
+				li t5, -1
+				sb t5, 0(t6) 
+				
+				mv a0, s6
+				addi t0, t0, 1 # i + 1
+				add a0, a0, t0 # Next item in sorted list
+				j leaderboardLoop
+	
+	playAgain:
+		la a0, again
+		li a7, 4
+		ecall
+		
+		li a7, 5
+		ecall
+		
+		bne a0, x0, forceExit
+		
+		la a0, newline 
+		li a7, 4
+		ecall
+		j setUp
+	
+	forceExit:
+		la a0, newline
+		li a7, 4
+		ecall
+		
+		li a7, 10
+		ecall
+    
+    
+# --- HELPER FUNCTIONS ---
+# Feel free to use, modify, or add to them however you see fit.
+     
+# Arguments: an integer MAX in a0
+# Return: A number from 0 (inclusive) to MAX (exclusive)	
+prng: 
+	# Using the Linear Congruent Generator Algorithm 
+	
+	# Load constants from .data
+	la t0, constants 
+	lb t1, 0(t0) # Xo
+	lb t2, 1(t0) # a
+	lb t3, 2(t0) # c
+	la t4, modulus # m
+	
+	# Algorithm 
+	mul t1, t1, t2 # t1 = a*Xo
+	add t1, t1, t3 # t1 = a*Xo + c
+	
+	div t2, t1, t4 # t2 = (a*Xo + c) / m
+	mul t2, t2, t4 # t2 = t2 * m
+	sub t1, t1, t2 # t1 = (a*Xo + c) - t2 -> remainder 
+	
+	sb t1, 0(t0)	# Change the current seed (Xo)
+	
+	div t2, t1, a0  # t2 = t1 / a0 (final mod value)
+    mul t2, t2, a0  # t2 = t2 * a0
+    sub t1, t1, t2  # remainder
+	
+	# Check for negatives 
+	bge t1, x0, done
+	neg t1, t1 # negate the number
+		
+	done:
+		mv a0, t1       # Return the result in a0
+		ret
+
+# Arguments: address of variable in a0
+# Return: Nothing
+# Stores a (x,y) in the argument variable
+genCoordinates:
+	sw ra, 0(sp) # Save return address on stack
+	sw a0, 4(sp) # Save variable address on stack
+	
+	# Generate the x coordinate
+	la t0, gridsize
+	lb a0, 0(t0)
+	jal prng
+	
+	lw t1, 4(sp) # Retrieve var address
+	sb a0, 0(t1)
+	
+	# Generate the y coordinate
+	la t0, gridsize
+	lb a0, 1(t0)
+	jal prng
+	
+	lw t1, 4(sp) 
+	sb a0, 1(t1)
+	
+	lw ra, 0(sp) # Retrieve return address
+	ret
+	
+# Arguments: addresses of person, box, target, gridsize in a1, a2, a3, a4
+# Return: board in a0
+printBoard: 
+	# Load coordinates of person, box, and target
+	li t0, 0 # row counter
+	li t1, 0 # col counter
+	li t2, 0 # offset
+	
+	lb t4, 0(a4) # grid x
+	lb t5, 1(a4) # grid y
+	addi t4, t4, -1
+	addi t5, t5, -1
+	
+	# Allocate space in heap
+	mul a0, t4, t5
+	addi a0, a0, 1 # For null pointer
+	li a7, 9
+	ecall 
+	
+	buildBoard:
+		lb t4, 0(a4) # grid x (height)
+		bge t0, t4, doneBuilding # row >= grid size (done building)
+	
+	buildRow:
+		lb t4, 0(a4) # grid x
+		lb t5, 1(a4) # grid y
+		
+		bge t1, t5, finishRow # col >= grid width (finished row)
+		
+		addi t4, t4, -1
+		addi t5, t5, -1
+		
+		# Build walls
+		beq t0, x0, addWallChar # Top
+		beq t0, t4, addWallChar # Bottom
+		beq t1, x0, addWallChar # Left
+		beq t1, t5, addWallChar # Right
+		
+		checkRow4Player:
+			lb t4, 0(a1) # player x
+			lb t5, 1(a1) # player y
+			
+			beq t0, t4, checkCol4Player
+			j checkRow4Box
+		
+		checkCol4Player:
+			beq t1, t5, addPlayerChar # Player is in this position 
+			
+		checkRow4Box:
+			lb t4, 0(a2) # box x
+			lb t5, 1(a2) # box y
+		
+			beq t0, t4, checkCol4Box
+			j checkRow4Target
+		
+		checkCol4Box:
+			beq t1, t5, addBoxChar # Box is in this position
+		
+		checkRow4Target:
+			lb t4, 0(a3) # box x
+			lb t5, 1(a3) # box y
+		
+			beq t0, t4, checkCol4Target
+			j addEmptyChar
+		
+		checkCol4Target:
+			beq t1, t5, addTargetChar # Target is in this position
+		
+		# If nothing, continue straight into next part (add empty)
+	
+	addEmptyChar:
+		li s0, 42  
+		j storeChar
+		
+	addWallChar:
+		li s0, 35
+		j storeChar
+		
+	addPlayerChar:
+		la s0, 80
+		j storeChar
+		
+	addBoxChar:
+		li s0, 66
+		j storeChar
+	
+	addTargetChar:
+		li s0, 84
+		j storeChar
+		
+	storeChar:
+		add t6, a0, t2 # Get the address of board[t2] 
+		sb s0, 0(t6) # Store character
+		
+		addi t2, t2, 1 # Increment array offset
+		addi t1, t1, 1 # Increment col counter
+		j buildRow
+	
+	finishRow:
+		li s0, 10 
+		# Add a new line
+		add t6, a0, t2
+		sb s0, 0(t6) 
+		
+		# Increment counters
+		addi t2, t2, 1 # array
+		addi t0, t0, 1 # row
+		
+		li t1, 0 # Reset col counter
+		
+		j buildBoard
+		
+	doneBuilding:
+		add t6, a0, t2
+		li s0, 0 	# Null pointer
+		sb s0, 0(t6)
+		
+		j gameLoop
+		
+# Arguments: a0 - base address of the array. a1 - size of array
+# Returns: address of sorted array of numbers in a0 
+bubbleSort:
+	li t0, 0 # Outer loop iterator (i)
+	outerLoop:
+		bge t0, a1, sortDone
+		
+		sub t5, a1, t0
+    	addi t5, t5, -1 # n-i-1
+		
+		li t1, 0 # Inner loop iterator (j)
+		li t2, 0 # swap flag boolean
+		innerLoop:
+			bge t1, t5, endInnerLoop # j >= n-i-1
+			add t3, t1, a0 # Address of jth element
+			lb t4, 0(t3) # jth element
+    		lb t6, 1(t3) # j+1th element   
+			
+			blt t6, t4, swap # arr[j] > arr[j+1]
+			
+			noSwap:	
+				addi t1, t1, 1
+				j innerLoop
+			
+			swap:
+				sb t6, 0(t3)
+				sb t4, 1(t3)
+				li t2, 1 # swap flag == true
+				
+				addi t1, t1, 1
+				j innerLoop
+		
+		endInnerLoop:
+			beq t2, x0, sortDone # if swap = false
+			
+			addi t0, t0, 1
+			j outerLoop
+		
+	sortDone:
+		ret
