@@ -95,7 +95,7 @@ When prompted by the console, enter the number of players and press enter. There
 As with most other games, you will often find yourself stuck with an unforeseeable bug or unable to continue playing the game. In this game, you will find your error message in the “messages” box at the bottom of the page. Like with the settings page, you may wish to enlargen this in the situation where an error does occur. 
 
 Here are some common problems and solution: 
-### “Instruction opcode differs from original executable”
+#### “Instruction opcode differs from original executable”
 
 This is most likely caused by the “reset” button at the top of the screen. As a result of the way the code works, static data, or in this case, the number of players is being changed within the loop. This prevents us from directly resetting by using this button. 
 
